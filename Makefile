@@ -1,4 +1,4 @@
-VESC_TOOL ?= $(if $(wildcard ./vesc_tool),./vesc_tool,vesc_tool)
+VESC_TOOL ?= vesc_tool
 
 all: vesc_niu_n1s_control_stm.vescpkg vesc_niu_n1s_control_esp.vescpkg
 

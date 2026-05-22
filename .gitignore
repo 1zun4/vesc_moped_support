@@ -1,5 +1,6 @@
 *.list
 *.vescpkg
+tools/**
 
 *.elf
 *.o
