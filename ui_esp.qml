@@ -1,22 +1,9 @@
-import QtQuick 2.15
+import Vedder.vesc.vescinterface 1.0;import "qrc:/mobile";import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.3
-import Vedder.vesc.commands 1.0
-import Vedder.vesc.utility 1.0
 
 Item {
-    id: root
     anchors.fill: parent
-
-    property Commands mCommands: VescIf.commands()
-
-    Component.onCompleted: {
-        sendCode("(send-settings)")
-    }
-
-    function sendCode(str) {
-        mCommands.sendCustomAppData(str + "\0")
-    }
 
     ScrollView {
         anchors.fill: parent
@@ -30,94 +17,53 @@ Item {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: "Configure which TCA9535 IO-expander pins are used for each input. " +
-                      "Pin numbers follow the TCA9535 scheme (P0x = 0–7, P1x = 10–17)."
+                text: "This package uses a fixed TCA9535 pin mapping. " +
+                      "Pin numbers follow the TCA9535 scheme (P0x = 0-7, P1x = 10-17)."
             }
 
             GroupBox {
                 Layout.fillWidth: true
-                title: "Pin Configuration"
+                title: "Pin Mapping"
 
                 GridLayout {
                     anchors.fill: parent
-                    columns: 2
+                    columns: 3
                     rowSpacing: 6
                     columnSpacing: 12
 
                     // Header row
-                    Label { text: "Signal";        font.bold: true }
-                    Label { text: "Pin #";         font.bold: true }
+                    Label { text: "Signal"; font.bold: true }
+                    Label { text: "Pin #"; font.bold: true }
+                    Label { text: "Polarity"; font.bold: true }
 
-                    // Mode Left
                     Label { text: "Mode Button Left" }
-                    SpinBox { id: pinModeLeft;  Layout.fillWidth: true; from: 0; to: 17; value: 2 }
+                    Label { text: "2" }
+                    Label { text: "Active-low" }
 
-                    // Mode Right
                     Label { text: "Mode Button Right" }
-                    SpinBox { id: pinModeRight; Layout.fillWidth: true; from: 0; to: 17; value: 3 }
+                    Label { text: "3" }
+                    Label { text: "Active-low" }
 
-                    // Brake
                     Label { text: "Brake Switch" }
-                    SpinBox { id: pinBrake;     Layout.fillWidth: true; from: 0; to: 17; value: 6 }
+                    Label { text: "6" }
+                    Label { text: "Active-high" }
 
-                    // Sidestand
                     Label { text: "Sidestand" }
-                    SpinBox { id: pinSidestand; Layout.fillWidth: true; from: 0; to: 17; value: 7 }
+                    Label { text: "7" }
+                    Label { text: "Active-low" }
 
-                    // Cruise
                     Label { text: "Cruise Button" }
-                    SpinBox { id: pinCruise;    Layout.fillWidth: true; from: 0; to: 17; value: 12 }
+                    Label { text: "12" }
+                    Label { text: "Active-low" }
 
-                    // Start (active-low)
-                    Label { text: "Start Button (active-low)" }
-                    SpinBox { id: pinStart;     Layout.fillWidth: true; from: 0; to: 17; value: 10 }
+                    Label { text: "Start Button" }
+                    Label { text: "10" }
+                    Label { text: "Active-low" }
 
-                    Button {
-                        Layout.columnSpan: 2
-                        Layout.fillWidth: true
-                        text: "Save Settings"
-                        onClicked: {
-                            var cmd = "(save-settings " +
-                                pinModeLeft.value  + " " +
-                                pinModeRight.value + " " +
-                                pinBrake.value     + " " +
-                                pinSidestand.value + " " +
-                                pinCruise.value    + " " +
-                                pinStart.value     + ")"
-                            sendCode(cmd)
-                        }
-                    }
-
-                    Button {
-                        Layout.columnSpan: 2
-                        Layout.fillWidth: true
-                        text: "Restore Defaults"
-                        onClicked: {
-                            sendCode("(restore-defaults)")
-                            sendCode("(send-settings)")
-                        }
-                    }
+                    Label { text: "Ignition Input" }
+                    Label { text: "13" }
+                    Label { text: "Active-high" }
                 }
-            }
-        }
-    }
-
-    Connections {
-        target: mCommands
-
-        function onCustomAppDataReceived(data) {
-            var str = data.toString().trim()
-
-            if (str.startsWith("settings ")) {
-                var t = str.split(" ")
-                pinModeLeft.value   = parseInt(t[1])
-                pinModeRight.value  = parseInt(t[2])
-                pinBrake.value      = parseInt(t[3])
-                pinSidestand.value  = parseInt(t[4])
-                pinCruise.value     = parseInt(t[5])
-                pinStart.value      = parseInt(t[6])
-            } else if (str === "ok") {
-                VescIf.emitStatusMessage("Settings saved.", true)
             }
         }
     }

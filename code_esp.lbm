@@ -3,6 +3,7 @@
 (def mode-button-right false)
 (def sidestand-down false)
 (def cruise-button false)
+(def ignition-on false)
 (def brake-active 0)
 
 (import "pkg@://vesc_packages/lib_tca9535/tca9535.vescpkg" 'tca9535)
@@ -11,96 +12,32 @@
 @const-start
 
 (def control-sid 200)
-(def settings-version 1i32)
 
-; Persistent settings: (label . (eeprom-offset type))
-(def eeprom-addrs '(
-    (ver-code         . (0  i))
-    (pin-mode-left    . (1  i))
-    (pin-mode-right   . (2  i))
-    (pin-brake        . (3  i))
-    (pin-sidestand    . (4  i))
-    (pin-cruise       . (5  i))
-    (pin-start        . (6  i))
-))
-
-(defun read-setting (name)
-    (let ((addr (first (assoc eeprom-addrs name)))
-          (type (second (assoc eeprom-addrs name))))
-        (cond
-            ((eq type 'i) (eeprom-read-i addr))
-)))
-
-(defun write-setting (name val)
-    (let ((addr (first (assoc eeprom-addrs name)))
-          (type (second (assoc eeprom-addrs name))))
-        (cond
-            ((eq type 'i) (eeprom-store-i addr val))
-)))
-
-(defun restore-defaults () {
-    (write-setting 'pin-mode-left  2)
-    (write-setting 'pin-mode-right 3)
-    (write-setting 'pin-brake      6)
-    (write-setting 'pin-sidestand  7)
-    (write-setting 'pin-cruise     12)
-    (write-setting 'pin-start      10)
-    (write-setting 'ver-code settings-version)
-})
-
-(defun load-settings () {
-    (if (not-eq (read-setting 'ver-code) settings-version)
-        (restore-defaults)
-    )
-    (setq io-pin-mode-left  (read-setting 'pin-mode-left))
-    (setq io-pin-mode-right (read-setting 'pin-mode-right))
-    (setq io-pin-brake      (read-setting 'pin-brake))
-    (setq io-pin-sidestand  (read-setting 'pin-sidestand))
-    (setq io-pin-cruise     (read-setting 'pin-cruise))
-    (setq io-pin-start      (read-setting 'pin-start))
-})
-
-(defun send-settings () {
-    (send-data (str-merge
-        "settings "
-        (str-from-n (read-setting 'pin-mode-left)  "%d ")
-        (str-from-n (read-setting 'pin-mode-right) "%d ")
-        (str-from-n (read-setting 'pin-brake)      "%d ")
-        (str-from-n (read-setting 'pin-sidestand)  "%d ")
-        (str-from-n (read-setting 'pin-cruise)     "%d ")
-        (str-from-n (read-setting 'pin-start)      "%d")
-    ))
-})
-
-(defun save-settings (pml pmr pbr pss pcr pst) {
-    (write-setting 'pin-mode-left  pml)
-    (write-setting 'pin-mode-right pmr)
-    (write-setting 'pin-brake      pbr)
-    (write-setting 'pin-sidestand  pss)
-    (write-setting 'pin-cruise     pcr)
-    (write-setting 'pin-start      pst)
-    (load-settings)
-    (send-data "ok")
-})
+; ESP switched 12 V outputs
+(def pin-sw1 0) ; ESP IO0
+(def pin-sw2 1) ; ESP IO1
+(def pin-sw3 2) ; ESP IO2
+(def pin-sw4 3) ; ESP IO3
 
 @const-end
 
-; IO-expander pin variables (overwritten from EEPROM at load-settings)
+; Fixed IO-expander pin mapping
 (def io-pin-mode-left  2)
 (def io-pin-mode-right 3)
 (def io-pin-brake      6)
 (def io-pin-sidestand  7)
 (def io-pin-start      10)
 (def io-pin-cruise     12)
+(def io-pin-ignition   13)
 
 (defun read-pins () {
     ; Pull-down bank (active-high inputs)
-        (tca9535-write-pins '(17 0))
+    (tca9535-write-pins '(17 0))
     (sleep 0.001)
-    (var pd (list (tca9535-read-pins io-pin-brake)))
+    (var pd (tca9535-read-pins io-pin-brake io-pin-ignition))
 
     ; Pull-up bank (active-low inputs)
-        (tca9535-write-pins '(17 1))
+    (tca9535-write-pins '(17 1))
     (sleep 0.001)
     (var pu (tca9535-read-pins
         io-pin-mode-left
@@ -111,7 +48,7 @@
     ))
 
     ; Return values in CAN field order:
-    ; mode-left, mode-right, brake, sidestand, cruise, start
+    ; mode-left, mode-right, brake, sidestand, cruise, start, ignition
     (list
         (ix pu 0)
         (ix pu 1)
@@ -119,31 +56,32 @@
         (ix pu 2)
         (ix pu 3)
         (ix pu 4)
+        (ix pd 1)
     )
 })
 
-(defun event-handler ()
-    (loopwhile t
-        (recv
-            ((event-data-rx . (? data)) (trap (eval (read data))))
-            (_ nil)
-)))
-
 (defun main () {
         (set-print-prefix "ESP-")
-        (load-settings)
 
         ; Force the ublox-driver to stop as we use the same pins for the IO-expander.
         (uart-start 0 20 21 115200)
         (uart-stop 0)
         (loopwhile (not (main-init-done)) (sleep 0.1))
 
+        ; Fix the switched 12 V outputs to a defined LOW state at start-up so they
+        ; are never left floating or powering anything (e.g. the brake-light line).
+        (gpio-configure pin-sw1 'pin-mode-out)
+        (gpio-configure pin-sw2 'pin-mode-out)
+        (gpio-configure pin-sw3 'pin-mode-out)
+        (gpio-configure pin-sw4 'pin-mode-out)
+        (gpio-write pin-sw1 0)
+        (gpio-write pin-sw2 0)
+        (gpio-write pin-sw3 0)
+        (gpio-write pin-sw4 0)
+
         (tca9535-init 0x20 'rate-100k 21 20)
         (tca9535-set-dir '(17 out))
         (tca9535-write-pins '(17 0))
-
-        (event-register-handler (spawn event-handler))
-        (event-enable 'event-data-rx)
 
         (var canbuf (bufcreate 8))
 
@@ -184,6 +122,7 @@
                 (setq sidestand-down    (= (ix pins 3) 0))
                 (setq cruise-button     (= (ix pins 4) 0))
                 (setq start-button      (= (ix pins 5) 0))
+                (setq ignition-on       (= (ix pins 6) 1))
 
                 (bufclear canbuf)
                 (bufset-u8 canbuf 0 (if start-button 1 0))
@@ -192,6 +131,7 @@
                 (bufset-u8 canbuf 3 (if sidestand-down 1 0))
                 (bufset-u8 canbuf 4 (if cruise-button 1 0))
                 (bufset-u8 canbuf 5 (if (>= brake-active 2) 1 0))
+                (bufset-u8 canbuf 6 (if ignition-on 1 0))
                 (can-send-sid control-sid canbuf)
 
                 (sleep 0.05)
