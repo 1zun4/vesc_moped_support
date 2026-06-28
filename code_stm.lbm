@@ -159,10 +159,13 @@
 })
 
 ; ── Power (AUX) control ──────────────────────────────────────────
-; The AUX 1 output drives the moped's 12 V harness. set-aux drives the
-; pin directly (it forces the aux mode to Unused), so on/off is instant.
-(defun apply-aux ()
-    (set-aux 1 (if aux-on 1 0)))
+; The AUX 1 and AUX 2 outputs drive the moped's 12 V harness. set-aux
+; drives the pins directly (it forces the aux mode to Unused), so on/off
+; is instant.
+(defun apply-aux () {
+    (set-aux 1 (if aux-on 1 0))
+    (set-aux 2 (if aux-on 1 0))
+})
 
 ; Runtime toggle: drive the pin and persist the choice so it survives a
 ; battery disconnect. The alarm is independent of this and is only
@@ -265,7 +268,7 @@
         (event-enable 'event-can-sid)
         (event-enable 'event-data-rx)
 
-        ; Drive the 12 V harness (AUX 1) to the persisted on/off state.
+        ; Drive the 12 V harness (AUX 1 + AUX 2) to the persisted on/off state.
         (apply-aux)
 
         ; This package drives the motor through the VESC Remote app via
