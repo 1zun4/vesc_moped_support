@@ -1,16 +1,14 @@
 (def start-button false)
 (def mode-button-left false)
 (def mode-button-right false)
-(def sidestand-down false)
+(def sidestand-raw false)   ; instantaneous sidestand state from CAN
+(def sidestand-down false)  ; registered down (raw held >= sidestand-deb)
 (def cruise-button false)
-(def brake-switch false)
+(def brake-raw false)       ; instantaneous brake state from CAN
+(def ignition-on false)
 
 (def adc-throttle 0.0)
-(def last-start-button false)
 (def last-cruise-button false)
-(def last-mode-button-left false)
-(def last-mode-button-right false)
-(def last-adc-throttle 0.0)
 (def last-control-update 0)
 (def active false)
 (def cruise-active false)
@@ -18,19 +16,61 @@
 (def profile-applied false)
 (def last-status-ts 0)
 
+; Debounce / hold timers. 0 means "not currently timing".
+(def sidestand-raw-since 0)
+(def ready-btn-since 0)
+(def last-ready-held false) ; previous "held past act-time" state (rising-edge detection)
+(def cruise-ts 0)           ; time cruise was engaged (grace window to release throttle)
+
+; Power (AUX) toggle via the left/right mode buttons.
+(def aux-on true)            ; desired electronics power state (persisted in EEPROM)
+(def last-mode-left false)   ; previous left mode button state (rising-edge detection)
+(def last-mode-right false)  ; previous right mode button state (rising-edge detection)
+
+; Motion alarm (only acts while the electronics are off).
+(def alarm-armed false)      ; armed from the app
+(def alarm 0)                ; siren step counter; 0 = silent
+(def alarm-time 0)           ; last time movement was detected
+(def alarm-gyro-thr 10.0)    ; movement threshold, deg/s (loaded from EEPROM)
+(def alarm-voltage 5.0)      ; tone amplitude / loudness, V (loaded from EEPROM)
+
 @const-start
 
 (def control-sid 200)
 (def control-timeout 0.30)
-(def settings-version 1i32)
+(def settings-version 5i32)
+
+(def act-time 0.1)            ; ready-button hold time to toggle active
+(def sidestand-deb 0.5)       ; sidestand debounce (hold to register as down)
+(def alarm-quiet-timeout 3.0) ; silence the siren this long after movement stops
+
+; Clamp to 0..1 and map a raw value in [min,max] to 0..1.
+(defun clamp01 (v)
+    (cond ((< v 0.0) 0.0) ((> v 1.0) 1.0) (t v)))
+(defun map-range-01 (v min max)
+    (clamp01 (/ (- (to-float v) min) (- max min))))
+
+; True while `raw` has been continuously asserted for at least `dur`
+; seconds. `timer-sym` is the (quoted) symbol of the global that stores the
+; debounce timestamp; it resets to 0 whenever `raw` is false.
+(defun btn-held (raw timer-sym dur) {
+    (if raw
+        (if (= (eval timer-sym) 0) (set timer-sym (systime)))
+        (set timer-sym 0))
+    (and raw (> (eval timer-sym) 0) (>= (secs-since (eval timer-sym)) dur))
+})
 
 ; Persistent settings: (label . (eeprom-offset type))
 (def eeprom-addrs '(
     (ver-code      . (0 i))
-    ; Offsets 1-2 kept unused for legacy throttle config.
+    (ign-disabled  . (1 i))
+    (regen-brake   . (2 f))
     (max-speed-kmh . (3 f))
     (max-watt      . (4 f))
     (accel-scale   . (5 f))
+    (aux-on        . (6 i))  ; electronics power state (toggled by the mode buttons)
+    (alarm-gyro    . (7 f))  ; alarm gyro movement threshold (deg/s)
+    (alarm-volt    . (8 f))  ; alarm tone loudness (V)
 ))
 
 (defun read-setting (name)
@@ -53,6 +93,11 @@
     (write-setting 'max-speed-kmh 27.0)
     (write-setting 'max-watt 1400.0)
     (write-setting 'accel-scale 0.60)
+    (write-setting 'regen-brake 0.30)
+    (write-setting 'ign-disabled 0)
+    (write-setting 'aux-on 1)
+    (write-setting 'alarm-gyro 10.0)
+    (write-setting 'alarm-volt 5.0)
     (write-setting 'ver-code settings-version)
 })
 
@@ -63,6 +108,11 @@
     (setq start-max-speed (/ (read-setting 'max-speed-kmh) 3.6))
     (setq start-max-watt (read-setting 'max-watt))
     (setq start-accel-scale (read-setting 'accel-scale))
+    (setq regen-brake (read-setting 'regen-brake))
+    (setq ignition-disabled (= (read-setting 'ign-disabled) 1))
+    (setq aux-on (= (read-setting 'aux-on) 1))
+    (setq alarm-gyro-thr (read-setting 'alarm-gyro))
+    (setq alarm-voltage (read-setting 'alarm-volt))
 })
 
 (defun send-settings () {
@@ -70,14 +120,22 @@
         "settings "
         (str-from-n (read-setting 'max-speed-kmh) "%.1f ")
         (str-from-n (read-setting 'max-watt)      "%.0f ")
-        (str-from-n (read-setting 'accel-scale)   "%.2f")
+        (str-from-n (read-setting 'accel-scale)   "%.2f ")
+        (str-from-n (read-setting 'regen-brake)   "%.2f ")
+        (str-from-n (read-setting 'ign-disabled)  "%d ")
+        (str-from-n (read-setting 'alarm-gyro)    "%.1f ")
+        (str-from-n (read-setting 'alarm-volt)    "%.1f")
     ))
 })
 
-(defun save-settings (spd watt scale) {
+(defun save-settings (spd watt scale regen ign gyro volt) {
     (write-setting 'max-speed-kmh spd)
     (write-setting 'max-watt      watt)
     (write-setting 'accel-scale   scale)
+    (write-setting 'regen-brake   regen)
+    (write-setting 'ign-disabled  ign)
+    (write-setting 'alarm-gyro    gyro)
+    (write-setting 'alarm-volt    volt)
     (load-settings)
     (apply-start-profile profile-applied)
     (send-data "ok")
@@ -87,14 +145,68 @@
     (send-data (str-merge
         "status "
         (if active "1 " "0 ")
+        (if (and online (or ignition-disabled ignition-on)) "1 " "0 ")
         (if (and online start-button) "1 " "0 ")
         (if (and online mode-button-left) "1 " "0 ")
         (if (and online mode-button-right) "1 " "0 ")
-        (if (and online brake-switch) "1 " "0 ")
+        (if (and online brake-raw) "1 " "0 ")
         (if (and online sidestand-down) "1 " "0 ")
         (if (and online cruise-button) "1 " "0 ")
-        (if cruise-active "1" "0")
+        (if cruise-active "1 " "0 ")
+        (if aux-on "1 " "0 ")
+        (if alarm-armed "1" "0")
     ))
+})
+
+; ── Power (AUX) control ──────────────────────────────────────────
+; The AUX 1 and AUX 2 outputs drive the moped's 12 V harness. set-aux
+; drives the pins directly (it forces the aux mode to Unused), so on/off
+; is instant.
+(defun apply-aux () {
+    (set-aux 1 (if aux-on 1 0))
+    (set-aux 2 (if aux-on 1 0))
+})
+
+; Runtime toggle: drive the pin and persist the choice so it survives a
+; battery disconnect. The alarm is independent of this and is only
+; armed/disarmed from the app.
+(defun set-electronics (on) {
+    (setq aux-on on)
+    (apply-aux)
+    (write-setting 'aux-on (if on 1 0))
+    ; Powering on while armed is itself a tamper event: sound the alarm.
+    (if (and on alarm-armed) (trigger-alarm))
+})
+
+; ── Motion alarm ─────────────────────────────────────────────────
+(defun arm-alarm () (setq alarm-armed true))
+
+; Start (or keep alive) the siren. The thread plays the tone pattern while
+; alarm > 0 and silences it once alarm-time is older than alarm-quiet-timeout.
+(defun trigger-alarm () {
+    (if (= alarm 0) (setq alarm 1))
+    (setq alarm-time (systime))
+})
+
+(defun disarm-alarm () {
+    (setq alarm-armed false)
+    (foc-play-stop)
+    (setq alarm 0)
+})
+
+; Return a 3-axis gyro reading (deg/s), preferring whichever device
+; reports a non-zero value: the local IMU first, then CAN devices.
+(defunret get-gyro () {
+    (var g (get-imu-gyro))
+    (if (and (eq (type-of g) 'type-list) (= (length g) 3)
+             (or (> (abs (ix g 0)) 0) (> (abs (ix g 1)) 0) (> (abs (ix g 2)) 0)))
+        (return g))
+    (loopforeach i (can-list-devs)
+        (let ((cg (rcode-run i 0.5 '(get-imu-gyro))))
+            (if (and (eq (type-of cg) 'type-list) (= (length cg) 3)
+                     (or (> (abs (ix cg 0)) 0) (> (abs (ix cg 1)) 0) (> (abs (ix cg 2)) 0)))
+                (return cg))))
+    g
 })
 
 @const-end
@@ -102,6 +214,10 @@
 (def start-max-speed (/ 27.0 3.6))
 (def start-max-watt 1400.0)
 (def start-accel-scale 0.60)
+(def regen-brake 0.30)        ; regen brake strength 0..1 (negative throttle via set-remote-state)
+(def ignition-disabled false) ; when true, ignition is forced on
+(def thr-v-start 0.8)         ; throttle ADC calibration, read from adc-v1-start at boot
+(def thr-v-end 3.0)           ; throttle ADC calibration, read from adc-v1-end at boot
 
 (defun apply-start-profile (enabled) {
         (if enabled
@@ -127,9 +243,10 @@
                 (setq start-button (= (bufget-u8 data 0) 1))
                 (setq mode-button-left (= (bufget-u8 data 1) 1))
                 (setq mode-button-right (= (bufget-u8 data 2) 1))
-                (setq sidestand-down (= (bufget-u8 data 3) 1))
+                (setq sidestand-raw (= (bufget-u8 data 3) 1))
                 (setq cruise-button (= (bufget-u8 data 4) 1))
-                (setq brake-switch (= (bufget-u8 data 5) 1))
+                (setq brake-raw (= (bufget-u8 data 5) 1))
+                (setq ignition-on (= (bufget-u8 data 6) 1))
                 (setq last-control-update (systime))
             }
         )
@@ -151,33 +268,88 @@
         (event-enable 'event-can-sid)
         (event-enable 'event-data-rx)
 
-        (set-aux 1 1) ; Keep the 12 V rail enabled for the harness.
-        (app-adc-detach 2 1) ; Detach buttons only. Keep ADC1 and ADC2 attached for now.
-        (app-adc-override 2 0.0)
-        (app-adc-override 3 0.0)
+        ; Drive the 12 V harness (AUX 1 + AUX 2) to the persisted on/off state.
+        (apply-aux)
+
+        ; This package drives the motor through the VESC Remote app via
+        ; set-remote-state, which (unlike the ADC/PPM apps) can be updated at any
+        ; time without detaching anything. The throttle is read straight from ADC1
+        ; (get-adc 0) and mapped with the ADC app's throttle calibration. Set the
+        ; ESC app to "VESC Remote" (Current No Reverse) for this to drive the motor.
+        (setq thr-v-start (conf-get 'adc-v1-start))
+        (setq thr-v-end (conf-get 'adc-v1-end))
         (apply-start-profile false)
+
+        ; Motion alarm. Acts whenever it is armed from the app, regardless of
+        ; whether the electronics are on or off (so it cannot be silenced by
+        ; powering the moped on). When the gyro detects movement it plays a
+        ; repeating three-tone siren on the motor and keeps it going until
+        ; movement has stopped for alarm-quiet-timeout. The step counter / tone
+        ; pattern mirror the vesc_scooter_support implementation.
+        (loopwhile-thd ("Alarm" 150) t {
+                (if alarm-armed
+                    {
+                        (var g (get-gyro))
+                        (if (or (> (abs (ix g 0)) alarm-gyro-thr)
+                                (> (abs (ix g 1)) alarm-gyro-thr)
+                                (> (abs (ix g 2)) alarm-gyro-thr))
+                            (trigger-alarm)
+                        )
+                        (cond
+                            ((= alarm 2) (foc-play-tone 0 4000 alarm-voltage))
+                            ((= alarm 3) (foc-play-tone 2 7000 alarm-voltage))
+                            ((= alarm 6) (foc-play-tone 1 2000 alarm-voltage))
+                            ((= alarm 8) { (foc-play-stop) (setq alarm 1) })
+                        )
+                        (if (and (> alarm 0) (> (secs-since alarm-time) alarm-quiet-timeout))
+                            { (foc-play-stop) (setq alarm 0) })
+                        (if (> alarm 0) (setq alarm (+ alarm 1)))
+                    }
+                    ; Electronics on or alarm disarmed: make sure the siren is off.
+                    (if (> alarm 0) { (foc-play-stop) (setq alarm 0) })
+                )
+                (sleep 0.06)
+        })
 
         (loopwhile-thd ("Control" 150) t {
                 (setq adc-throttle (get-adc 0))
+                (var val-thr (map-range-01 adc-throttle thr-v-start thr-v-end))
                 (var controls-online (< (secs-since last-control-update) control-timeout))
-            (var speed-kmh (* (abs (get-speed)) 3.6))
+                ; Ignition can be forced on from the settings (the ready button still rules).
+                (var controls-allowed (and controls-online (or ignition-disabled ignition-on)))
+                (var speed-kmh (* (abs (get-speed)) 3.6))
 
-                ; Toggle active state on rising edge of start-button
-                (if (and controls-online start-button (not last-start-button)) {
-                    (setq active (not active))
-                    (if (not active) (setq cruise-active false))
-                })
+                ; Sidestand must be held down continuously for sidestand-deb
+                ; before it counts as down. Raising it registers immediately.
+                (setq sidestand-down (btn-held sidestand-raw 'sidestand-raw-since sidestand-deb))
 
-                ; Only allow switching into reverse when nearly stationary.
-                (if (and controls-online mode-button-left (not last-mode-button-left) (< speed-kmh 5.0)) {
-                    (setq reverse-mode true)
-                    (if profile-applied (apply-start-profile true))
-                })
+                ; Ready (start) button: hold for act-time to toggle active, firing
+                ; once on the rising edge of the held state. Only acts while parked
+                ; (<= 3 km/h) so it can never toggle active mid-ride, the same rule
+                ; that gates turning the electronics off.
+                (var ready-held (btn-held (and controls-allowed start-button) 'ready-btn-since act-time))
+                (if (and ready-held (not last-ready-held) (<= speed-kmh 3.0))
+                    (if active
+                        {
+                            (setq active false)
+                            (setq cruise-active false)
+                        }
+                        (setq active true)
+                    )
+                )
 
-                (if (and controls-online mode-button-right (not last-mode-button-right)) {
-                    (setq reverse-mode false)
-                    (if profile-applied (apply-start-profile true))
-                })
+                ; Left mode button turns the moped electronics (AUX 12 V rail)
+                ; off; right mode button turns them on. These work even when the
+                ; ignition is off, so they only depend on the CAN link being alive
+                ; (controls-online), not on controls-allowed. Turning off is only
+                ; allowed while parked (inactive and <= 3 km/h).
+                (if (and controls-online mode-button-left (not last-mode-left)
+                         (not active) (<= speed-kmh 3.0))
+                    (set-electronics false)
+                )
+                (if (and controls-online mode-button-right (not last-mode-right))
+                    (set-electronics true)
+                )
 
                 ; Sidestand requires a full restart sequence.
                 (if (and controls-online sidestand-down active) {
@@ -185,46 +357,65 @@
                     (setq cruise-active false)
                 })
 
-                ; Deactivate if CAN controls go offline.
-                (if (and (not controls-online) active) {
+                ; Deactivate when controls are unavailable or ignition is off.
+                (if (and (not controls-allowed) active) {
                     (setq active false)
                     (setq cruise-active false)
                 })
 
-                ; Toggle cruise latch on button press.
-                (if (and controls-online cruise-button (not last-cruise-button)) {
+                ; While the alarm is armed the moped is locked down: keep it
+                ; inactive so it cannot be ridden.
+                (if alarm-armed {
+                    (setq active false)
+                    (setq cruise-active false)
+                })
+
+                ; Toggle cruise latch on button press. Use the raw brake so braking
+                ; blocks/cancels cruise immediately, not after the debounce.
+                (if (and controls-allowed cruise-button (not last-cruise-button)) {
                     (if cruise-active
                         (setq cruise-active false)
-                        (if (and active (not sidestand-down) (not brake-switch) (> speed-kmh 5.0))
+                        (if (and active (not sidestand-down) (not brake-raw) (> speed-kmh 5.0)) {
                             (setq cruise-active true)
-                        )
+                            (setq cruise-ts (systime)) ; start the release-throttle grace window
+                        })
                     )
                 })
 
-                ; Cancel cruise on brake, sidestand, offline, disable, or throttle re-application.
+                ; Cancel cruise on brake, sidestand, offline or disable. Throttle
+                ; re-application only cancels after a 2 s grace window, so the rider
+                ; can engage cruise while still holding the throttle and then let go.
                 (if (or
-                        (not controls-online)
+                    (not controls-allowed)
                         (not active)
                         sidestand-down
-                        brake-switch
+                        brake-raw
                         (< speed-kmh 5.0)
-                        (> adc-throttle (+ last-adc-throttle 0.1))
+                        (and (> (secs-since cruise-ts) 2.0) (> val-thr 0.05))
                     )
                     (setq cruise-active false)
                 )
 
-                ; Feed button state into the native ADC app.
-                ; Cruise is latched here, but executed by the native ADC app.
-                (app-adc-override 2 0.0)
-                (app-adc-override 3 (if cruise-active 3.3 0.0))
+                ; Drive the motor through the VESC Remote app. js-y is the throttle
+                ; (-1..1): positive drives, negative brakes (regen). Throttle is only
+                ; output while active; weak regen is applied when the brake is
+                ; registered and the throttle is released. Cruise is the C button:
+                ; while it is latched we send zero throttle so the Remote app holds
+                ; the captured speed (re-applying throttle cancels it). No reverse.
+                (var braking (and active brake-raw (< val-thr 0.05)))
+                (var thr-out (if (and active (not cruise-active)) val-thr 0.0))
+                (var brake-out (if braking regen-brake 0.0))
+                ; While armed, active is forced off above, so this sends zero and
+                ; the siren's foc-play-tone is free to drive the motor.
+                (set-remote-state (- thr-out brake-out) 0.0 (if cruise-active 1 0) 0 0)
 
-                (setq last-start-button (and controls-online start-button))
+                ; Track raw button state so a held button cannot trigger on ignition rise.
                 (setq last-cruise-button (and controls-online cruise-button))
-                (setq last-mode-button-left (and controls-online mode-button-left))
-                (setq last-mode-button-right (and controls-online mode-button-right))
-                (setq last-adc-throttle adc-throttle)
+                (setq last-mode-left (and controls-online mode-button-left))
+                (setq last-mode-right (and controls-online mode-button-right))
+                (setq last-ready-held ready-held)
 
-                (var should-apply-profile (and active controls-online (not sidestand-down)))
+                (var should-apply-profile (and active controls-allowed (not sidestand-down)))
                 (if (not-eq profile-applied should-apply-profile)
                     (apply-start-profile should-apply-profile)
                 )
