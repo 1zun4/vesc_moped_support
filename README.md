@@ -20,6 +20,14 @@ Still planned:
 
 - NIU N1S display support over a TTL to RS485 adapter
 
+## NIU Link hardware design
+
+The [30S NIU Link design draft](hardware/niu_link/README.md) defines a combined
+N1S RS485 / NQiX CAN gateway with VESC Express WiFi/cellular connectivity and
+integrated auxiliary power conversion. It includes an audit of the legacy KiCad
+board, connector extraction, power calculations and verification requirements.
+It is not yet a fabrication-ready PCB or verified NQiX implementation.
+
 ## Wiring Photo
 
 Wiring photo placeholder: I will add the NIU N1S ESC plug to VESCLabs Maxim+ 150V wiring picture soon.
