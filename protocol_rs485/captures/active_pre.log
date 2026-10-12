@@ -1,0 +1,39 @@
+# Capturing 15.0s at 9600 baud on /dev/ttyUSB0 (gap frame split @ 12.0ms)
+# Wrote 3573 bytes -> captures/active_pre.bin , 224 chunks -> captures/active_pre.jsonl
+
+# 218 gap-delimited frame(s):
+# frame-length histogram: {9: 44, 13: 24, 14: 75, 15: 13, 18: 12, 27: 44, 36: 6}
+
+# Full hexdump (first 512B):
+  0000  FE FE FE FE 68 10 EF 68 04 0F B3 C3 34 33 DD 56  ....h..h....43.V
+  0010  33 33 33 33 33 33 40 49 F2 9F 16 68 10 EF 68 84  333333@I...h..h.
+  0020  01 34 88 16 FE FE FE FE 68 70 8F 68 04 03 71 C3  .4......hp.h..q.
+  0030  B3 BD 16 FE FE FE FE 68 70 8F 68 84 00 53 16 AA  .......hp.h..S..
+  0040  AA FE FE FE FE 68 20 DF 68 02 02 38 3B 46 16 FE  .....h .h..8;F..
+  0050  FE FE FE 68 10 EF 68 04 0F B3 C3 34 33 DD 56 33  ...h..h....43.V3
+  0060  33 33 33 33 33 40 49 F2 9F 16 68 10 EF 68 84 01  33333@I...h..h..
+  0070  34 88 16 FE FE FE FE 68 31 CE 68 02 02 60 42 75  4......h1.h..`Bu
+  0080  16 FF FF FF FF 68 20 DF 68 06 01 44 1A 16 FE FE  .....h .h..D....
+  0090  FE FE 68 10 EF 68 04 0F B3 C3 34 33 DD 56 33 33  ..h..h....43.V33
+  00A0  33 33 33 33 40 49 F2 9F 16 68 10 EF 68 84 01 34  3333@I...h..h..4
+  00B0  88 16 FE FE FE FE 68 70 8F 68 02 02 53 39 5F 16  ......hp.h..S9_.
+  00C0  FE FE FE FE 68 70 8F 68 82 06 33 33 33 34 33 33  ....hp.h..333433
+  00D0  8A 16 FE FE FE FE 68 20 DF 68 02 02 38 3B 46 16  ......h .h..8;F.
+  00E0  FE FE FE FE 68 10 EF 68 04 0F B3 C3 34 33 DD 56  ....h..h....43.V
+  00F0  33 33 33 33 33 33 40 49 F2 9F 16 68 10 EF 68 84  333333@I...h..h.
+  0100  01 34 88 16 FE FE FE FE 68 31 CE 68 02 02 60 42  .4......h1.h..`B
+  0110  75 16 FF FF FF FF 68 20 DF 68 06 01 44 1A 16 FE  u.....h .h..D...
+  0120  FE FE FE 68 10 EF 68 04 0F B3 C3 34 33 DD 56 33  ...h..h....43.V3
+  0130  33 33 33 33 33 40 49 F2 9F 16 68 10 EF 68 84 01  33333@I...h..h..
+  0140  34 88 16 FE FE FE FE 68 70 8F 68 04 03 71 C3 B3  4......hp.h..q..
+  0150  BD 16 FE FE FE FE 68 70 8F 68 84 00 53 16 AA AA  ......hp.h..S...
+  0160  FE FE FE FE 68 20 DF 68 02 02 38 3B 46 16 FE FE  ....h .h..8;F...
+  0170  FE FE 68 10 EF 68 04 0F B3 C3 34 33 DD 56 33 33  ..h..h....43.V33
+  0180  33 33 33 33 40 49 F2 9F 16 68 10 EF 68 84 01 34  3333@I...h..h..4
+  0190  88 16 FE FE FE FE 68 31 CE 68 02 02 60 42 75 16  ......h1.h..`Bu.
+  01A0  FF FF FF FF 68 20 DF 68 06 01 44 1A 16 FE FE FE  ....h .h..D.....
+  01B0  FE 68 10 EF 68 04 0F B3 C3 34 33 DD 56 33 33 33  .h..h....43.V333
+  01C0  33 33 33 40 49 F2 9F 16 68 10 EF 68 84 01 34 88  333@I...h..h..4.
+  01D0  16 FE FE FE FE 68 70 8F 68 02 02 53 39 5F 16 FE  .....hp.h..S9_..
+  01E0  FE FE FE 68 70 8F 68 82 06 33 33 33 34 33 33 8A  ...hp.h..333433.
+  01F0  16 FE FE FE FE 68 20 DF 68 02 02 38 3B 46 16 FE  .....h .h..8;F..

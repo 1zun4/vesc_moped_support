@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//dev/**)",
+      "Bash(lsusb)",
+      "Bash(dmesg)"
+    ]
+  }
+}
