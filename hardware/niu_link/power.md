@@ -2,8 +2,30 @@
 
 30S at 4.2 V/cell means 126 V maximum steady battery voltage. Chemistry and the
 allowed minimum battery voltage must be confirmed. Regenerative and hot-plug
-transients are additional design inputs. The user's 84 V ceiling is a ceiling,
-not a selected output setpoint or a substitute for component ratings.
+transients are additional design inputs. The earlier general 84 V assumption is superseded for the identified OEM converter
+by its 72 V input ceiling; the intended front-electronics supply is approximately 60 V.
+
+## Original N1S DC/DC converter — owner-identified
+
+The owner identifies the converter on this N1S as the Green Watt Power EVD-125
+series, model EVD-60-125-D12-5 (factory PLD125-EVDN10-12).
+[Manufacturer datasheet, 2024-01-29](https://greenwattpower.com/wp-content/uploads/Datasheet-EVD-125.pdf).
+This identification is user-reported for this vehicle, not established for every N1S.
+
+- Input: 36–72 V DC; non-isolated, common input/output ground.
+- Outputs: 12 V / 8 A continuous and 5 V / 2 A continuous.
+- 12 V peak: 10 A for five minutes; total rating 106 W continuous / 125 W peak.
+- The enable-equipped -E variant uses a battery-domain enable; verify fitted suffix.
+
+The dual outputs make a conventional single-output converter unsuitable as a
+plug-in replacement. No compatible higher-input-voltage drop-in replacement is
+identified; do not interpret this as proof that none can exist. Compatibility also
+requires matching wiring, connectors, enable behaviour, mounting and output ratings.
+The plan therefore retains the original converter behind an approximately 60 V
+preregulator. Its published 72 V input ceiling overrides the earlier general 84 V
+assumption for this component. Include regulation tolerance and overshoot below it.
+Actual loads still require measurement; nameplate capability is not measured demand.
+The upstream stage must account for OEM converter losses plus any other loads.
 
 ## Separate loads
 
