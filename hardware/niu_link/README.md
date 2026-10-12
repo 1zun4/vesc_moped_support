@@ -6,6 +6,12 @@ assignments, NIU supply load, NQiX protocol, component pin assignments and power
 magnetics still require verification. No Gerbers or validated electrical schematic
 are supplied by this revision.
 
+## Implementation plan
+
+Use the [TSCircuit implementation plan](TSCIRCUIT_PLAN.md) for the next phase.
+TSX is the design source of truth; the plan defines buildable circuit milestones,
+validation, layout and prototype deliverables.
+
 ## Architecture
 
 One PCB contains an independent vehicle gateway, VESC Express connectivity, and
